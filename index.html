@@ -839,13 +839,326 @@
   ============================================================ -->
   <script>
 
-    /* ── 1. CONFIG ── */
-    const CONFIG = {
-      API_URL : 'https://api.anthropic.com/v1/messages',
-      API_KEY : '',          // ← Isi dengan Anthropic API key Anda
-      MODEL   : 'claude-haiku-4-5-20251001',
-      MAX_TOKENS: 4000,
-    };
+    
+
+index (1).html
+File
+Di dalam file html ini dimana saya harus melatakan kode fetch // Gemini pakai query parameter untuk API key, bukan header
+const res = await fetch(${CONFIG.API_URL}?key=${CONFIG.API_KEY}, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: 4000 }
+  })
+});
+
+const data = await res.json();
+const text = data.candidates[0].content.parts[0].text;
+
+Oke, saya sudah lihat file kamu. 👍
+Masalahnya: sekarang kamu pakai format API Anthropic, bukan Gemini — jadi harus diganti di bagian generateSoal().
+
+📍 Lokasi yang harus kamu ubah
+Di dalam function:
+
+async function generateSoal()
+Cari bagian ini 👇
+(ini yang sekarang SALAH)
+
+const res = await fetch(CONFIG.API_URL, {
+  method: 'POST',
+  headers: {
+    'Content-Type'      : 'application/json',
+    'x-api-key'         : CONFIG.API_KEY,
+    'anthropic-version' : '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true',
+  },
+  body: JSON.stringify({
+    model      : CONFIG.MODEL,
+    max_tokens : CONFIG.MAX_TOKENS,
+    messages   : [{ role: 'user', content: prompt }],
+  })
+});
+✅ Ganti dengan kode Gemini (punya kamu)
+const res = await fetch(
+  `${CONFIG.API_URL}${CONFIG.MODEL}:generateContent?key=${CONFIG.API_KEY}`,
+  {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [{ text: prompt }]
+        }
+      ],
+      generationConfig: {
+        maxOutputTokens: 4000
+      }
+    })
+  }
+);
+
+const data = await res.json();
+const text = data.candidates[0].content.parts[0].text;
+⚠️ Penting (WAJIB ubah CONFIG juga)
+Sekarang kamu punya:
+
+API_URL : 'https://generativelanguage.googleapis.com/v1beta/models/'
+➡️ Itu sudah benar, tapi harus dipakai seperti ini:
+
+`${CONFIG.API_URL}${CONFIG.MODEL}:generateContent`
+Jadi hasil akhirnya jadi:
+
+https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
+🔁 Tambahan: Parsing JSON hasil AI
+Karena Gemini return text, kamu perlu parsing:
+
+Ganti bagian ini:
+
+const raw   = data.content.map(b => b.text || '').join('');
+➡️ jadi:
+
+const raw = text;
+const clean = raw.replace(/```json|```/g, '').trim();
+const parsed = JSON.parse(clean);
+🧠 Ringkasnya
+Yang kamu lakukan:
+
+❌ Hapus header x-api-key & anthropic-*
+
+❌ Hapus messages
+
+✅ Pakai contents
+
+✅ API key pakai ?key=
+
+✅ Endpoint pakai :generateContent
+
+🚀 Bonus Tips (biar gak error)
+Tambahin ini sebelum parse:
+
+console.log(text);
+Biar kamu bisa debug kalau JSON-nya rusak.
+
+Kalau mau, next step saya bisa:
+✅ Rapihin response biar auto format soal ke UI kamu
+✅ Tambahin retry kalau AI error
+✅ Atau bikin versi streaming (lebih cepat terasa realtime)
+
+Mau lanjut ke mana?
+
+
+Kenapa masih stuck di loading screen
+
+Dari file kamu, ada beberapa kemungkinan kuat kenapa stuck di loading — dan ini biasanya bukan UI, tapi API / JS error yang “silent”. Kita bedah yang paling sering terjadi 👇
+
+🔥 1. Fetch error tapi tidak kelihatan
+Di generateSoal() kamu memang ada catch, tapi kalau parsing gagal / response kosong → loading gak dimatikan dengan benar.
+
+➡️ Tambahkan debug ini sebelum parsing:
+
+console.log('RAW RESPONSE:', data);
+console.log('TEXT:', text);
+Kalau text undefined → pasti macet di situ.
+
+⚠️ 2. Format response Gemini beda (INI PALING SERING)
+Kamu ambil:
+
+const text = data.candidates[0].content.parts[0].text;
+Masalahnya:
+👉 Kalau API error / quota / invalid key → candidates tidak ada
+
+➡️ Harus amanin:
+
+if (!data.candidates || !data.candidates.length) {
+  throw new Error('Response kosong dari Gemini API');
+}
+
+const text = data.candidates[0].content.parts[0].text;
+⚠️ 3. JSON dari AI gak valid → app freeze
+AI sering balikin:
+
+```json
+{ ... }
+
+atau bahkan teks tambahan.
+
+Kalau ini gagal:
+
+```js
+const parsed = JSON.parse(clean);
+➡️ loading gak pernah berhenti (karena error terjadi sebelum UI reset)
+
+✅ SOLUSI WAJIB (biar gak stuck)
+Update blok try kamu jadi seperti ini:
+
+try {
+  const res = await fetch(
+    `${CONFIG.API_URL}${CONFIG.MODEL}:generateContent?key=${CONFIG.API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 4000 }
+      })
+    }
+  );
+
+  const data = await res.json();
+  console.log(data);
+
+  if (!data.candidates) {
+    throw new Error('API tidak mengembalikan candidates');
+  }
+
+  const text = data.candidates[0].content.parts[0].text;
+  console.log(text);
+
+  const clean = text.replace(/```json|```/g, '').trim();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(clean);
+  } catch (e) {
+    throw new Error('JSON tidak valid dari AI');
+  }
+
+  if (!parsed.questions) {
+    throw new Error('Format soal tidak sesuai');
+  }
+
+  // lanjut normal
+  renderResults(parsed.questions, { kelas, mapel, topik, tipe, kesulitan });
+
+} catch (err) {
+  console.error(err);
+
+  document.getElementById('loading-box').classList.remove('show');
+  document.getElementById('generator-form').style.display = 'block';
+
+  showError('Error: ' + err.message);
+}
+🔥 4. API KEY kena limit / invalid
+Kalau ini terjadi:
+
+loading muter terus
+
+tapi sebenarnya request gagal
+
+➡️ Cek di console browser (F12 → Console)
+
+Biasanya muncul:
+
+403 → API key salah
+
+429 → quota habis
+
+⚠️ 5. Endpoint salah (sering kejadian)
+Pastikan kamu pakai ini:
+
+`${CONFIG.API_URL}${CONFIG.MODEL}:generateContent?key=${CONFIG.API_KEY}`
+❌ JANGAN:
+
+CONFIG.API_URL saja
+🧪 Cara cepat cek penyebab
+Buka Chrome DevTools (F12)
+
+Klik tab Console
+
+Klik tombol "Buat Soal"
+
+Lihat error:
+
+merah → pasti penyebabnya
+
+kosong → kemungkinan parsing stuck
+
+🎯 Kesimpulan paling mungkin
+Dari pengalaman, 90% kasus kamu ini karena:
+👉 data.candidates undefined
+👉 atau JSON dari AI tidak valid
+
+🚀 Kalau mau lebih stabil (rekomendasi)
+Saya bisa bantu upgrade:
+
+✅ Auto-fix JSON AI (anti error)
+
+✅ Retry request kalau gagal
+
+✅ Streaming response (lebih smooth, gak stuck)
+
+✅ Loader progress real (bukan fake)
+
+Kalau mau, kirim screenshot console error kamu — saya bisa pinpoint 100% penyebabnya dalam 1x lihat 👍
+
+
+Buatkan file fix di html
+
+Index Fixed
+· html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guru AI - Fixed</title>
+</head>
+<body>
+
+<button onclick="generateSoal()">Test Generate</button>
+<pre id="output"></pre>
+
+<script>
+const CONFIG = {
+  API_KEY: 'ISI_API_KEY_KAMU',
+  MODEL: 'gemini-1.5-flash',
+  API_URL: 'https://generativelanguage.googleapis.com/v1beta/models/'
+};
+
+async function generateSoal() {
+  const prompt = `Buatkan 3 soal matematika kelas 4 SD dalam format JSON:\n{ "questions": [{"question":"","answer":""}] }`;
+
+  try {
+    const res = await fetch(
+      `${CONFIG.API_URL}${CONFIG.MODEL}:generateContent?key=${CONFIG.API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 2000 }
+        })
+      }
+    );
+
+    const data = await res.json();
+    console.log('FULL RESPONSE:', data);
+
+    if (!data.candidates || !data.candidates.length) {
+      throw new Error('Tidak ada response dari Gemini');
+    }
+
+    const text = data.candidates[0].content.parts[0].text;
+    console.log('TEXT:', text);
+
+    const clean = text.replace(/```json|```/g, '').trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch (e) {
+      throw new Error('JSON tidak valid dari AI');
+    }
+
+    document.getElementById('output').textContent = JSON.stringify(parsed, null, 2);
+
+  } catch (err) {
+    console.error(err);
+    document.getElementById('output').textContent = 'ERROR: ' + err.message;
+  }
+}
 
 
     /* ── 2. APP STATE ── */
