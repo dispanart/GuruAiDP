@@ -15,7 +15,7 @@ module.exports = async function handler(req, res) {
   const prompt = body.prompt;
   if (!prompt) return res.status(400).json({ error: 'Field prompt wajib diisi.' });
 
-  const model = 'gemini-2.0-flash-lite';
+  const model = 'gemini-2.5-flash';
 
   try {
     const geminiRes = await fetch(
