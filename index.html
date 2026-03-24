@@ -841,11 +841,10 @@
 
     /* ── 1. CONFIG ── */
     const CONFIG = {
-      API_URL : 'https://api.anthropic.com/v1/messages',
-      API_KEY : '',          // ← Isi dengan Anthropic API key Anda
-      MODEL   : 'claude-haiku-4-5-20251001',
-      MAX_TOKENS: 4000,
-    };
+  // Ganti ke Gemini
+  API_URL : 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+  API_KEY : 'AIzaSyBdXHVkB11AGo2ld88ka8M4tLkApDRxSMk',  // Gratis dari aistudio.google.com
+};
 
 
     /* ── 2. APP STATE ── */
@@ -1211,27 +1210,18 @@ Kembalikan HANYA JSON valid tanpa teks lain, format:
       }
 
       try {
-        const res = await fetch(CONFIG.API_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type'      : 'application/json',
-            'x-api-key'         : CONFIG.API_KEY,
-            'anthropic-version' : '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model      : CONFIG.MODEL,
-            max_tokens : CONFIG.MAX_TOKENS,
-            messages   : [{ role: 'user', content: prompt }],
-          })
-        });
+        // Gemini pakai query parameter untuk API key, bukan header
+const res = await fetch(`${CONFIG.API_URL}?key=${CONFIG.API_KEY}`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: 4000 }
+  })
+});
 
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err?.error?.message || `HTTP ${res.status}`);
-        }
-
-        const data  = await res.json();
+const data = await res.json();
+const text = data.candidates[0].content.parts[0].text;
         const raw   = data.content.map(b => b.text || '').join('');
         const clean = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(clean);
