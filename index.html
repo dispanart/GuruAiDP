@@ -1237,9 +1237,9 @@ const text = data.candidates[0].content.parts[0].text;
         }
 
         const data  = await res.json();
-        const raw   = data.content.map(b => b.text || '').join('');
-        const clean = raw.replace(/```json|```/g, '').trim();
-        const parsed = JSON.parse(clean);
+        const raw = text;
+const clean = raw.replace(/```json|```/g, '').trim();
+const parsed = JSON.parse(clean);
 
         if (!parsed.questions || !parsed.questions.length) {
           throw new Error('Format respons tidak valid. Coba lagi.');
