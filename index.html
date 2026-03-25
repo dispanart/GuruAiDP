@@ -32,6 +32,39 @@
     // Expose ke global agar bisa diakses dari script biasa
     window._fb = { auth, db, provider, signInWithPopup, signOut, onAuthStateChanged,
       doc, getDoc, setDoc, collection, addDoc, getDocs, deleteDoc, query, orderBy };
+
+    // ── Expose fungsi auth ke global (wajib karena module punya scope terpisah) ──
+    window.loginWithGoogle = async function() {
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (e) {
+        const msg = e.code === 'auth/popup-blocked'
+          ? '⚠️ Popup diblokir browser. Izinkan popup lalu coba lagi.'
+          : '❌ Gagal login: ' + e.message;
+        const toast = document.getElementById('toast');
+        if (toast) { toast.textContent = msg; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 3500); }
+        else alert(msg);
+      }
+    };
+
+    window.doSignOut = async function() {
+      await signOut(auth);
+      if (window._appSignOut) window._appSignOut();
+    };
+
+    // ── Init auth state langsung dari module ──
+    window.addEventListener('load', () => {
+      onAuthStateChanged(auth, async (user) => {
+        document.getElementById('splash').classList.add('hide');
+        if (user) {
+          if (window._appShowUser) {
+            await window._appShowUser(user);
+          }
+        } else {
+          document.getElementById('login-screen').classList.add('visible');
+        }
+      });
+    });
   </script>
 
   <style>
@@ -392,7 +425,7 @@
         <div class="stats-row">
           <div class="stat"><div class="stat-val" id="stat-soal">0</div><div class="stat-label">Soal Dibuat</div></div>
           <div class="stat"><div class="stat-val" id="stat-bank">0</div><div class="stat-label">Tersimpan</div></div>
-          <div class="stat"><div class="stat-val">∞</div><div class="stat-label">Limit Hari Ini</div></div>
+          <div class="stat"><div class="stat-val">100</div><div class="stat-label">Soal / Generate</div></div>
         </div>
       </div>
 
@@ -514,11 +547,10 @@
             <div class="field">
               <label>Jumlah Soal</label>
               <select id="jumlah">
-                <option value="3">3 Soal</option>
-                <option value="5" selected>5 Soal</option>
-                <option value="10">10 Soal</option>
-                <option value="15">15 Soal</option>
-                <option value="20">20 Soal</option>
+                <option value="10" selected>10 Soal</option>
+                <option value="25">25 Soal</option>
+                <option value="50">50 Soal</option>
+                <option value="100">100 Soal</option>
               </select>
             </div>
             <div class="field">
@@ -861,7 +893,7 @@
   // ══════════════════════════════════════════
   const CONFIG = {
     API_URL: '/api/generate',
-    MAX_TOKENS: 4000,
+    MAX_TOKENS: 16000,
   };
 
   // ══════════════════════════════════════════
@@ -970,52 +1002,19 @@
   }
 
   // ══════════════════════════════════════════
-  //  FIREBASE AUTH
+  //  FIREBASE AUTH HOOKS
   // ══════════════════════════════════════════
-  // Bug fix: ES module (Firebase) berjalan async, sehingga window._fb
-  // belum tentu tersedia saat 'load' event terfiring di script biasa.
-  // Gunakan polling pendek untuk memastikan _fb sudah siap.
-  function waitForFirebase(cb, tries = 0) {
-    if (window._fb && window._fb.auth) {
-      cb();
-    } else if (tries < 30) {
-      setTimeout(() => waitForFirebase(cb, tries + 1), 100);
-    } else {
-      // Timeout 3 detik — sembunyikan splash dan tampilkan login
-      document.getElementById('splash').classList.add('hide');
-      document.getElementById('login-screen').classList.add('visible');
-      showToast('⚠️ Gagal memuat Firebase. Periksa koneksi internet.');
-    }
-  }
+  // loginWithGoogle & doSignOut didefinisikan di module script (type="module")
+  // karena hanya module yang bisa import Firebase. Di sini kita daftarkan
+  // callback yang akan dipanggil oleh module setelah auth state berubah.
 
-  window.addEventListener('load', () => {
-    waitForFirebase(() => {
-      const { auth, onAuthStateChanged } = window._fb;
-      onAuthStateChanged(auth, async (user) => {
-        document.getElementById('splash').classList.add('hide');
-        if (user) {
-          state.user = user;
-          await loadUserData(user);
-          showApp(user);
-        } else {
-          document.getElementById('login-screen').classList.add('visible');
-        }
-      });
-    });
-  });
+  window._appShowUser = async function(user) {
+    state.user = user;
+    await loadUserData(user);
+    showApp(user);
+  };
 
-  async function loginWithGoogle() {
-    try {
-      const { auth, provider, signInWithPopup } = window._fb;
-      await signInWithPopup(auth, provider);
-    } catch (e) {
-      showToast('❌ Gagal login: ' + e.message);
-    }
-  }
-
-  async function doSignOut() {
-    const { auth, signOut } = window._fb;
-    await signOut(auth);
+  window._appSignOut = function() {
     state.user = null;
     state.bankSoal = [];
     state.totalSoal = 0;
